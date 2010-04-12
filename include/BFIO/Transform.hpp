@@ -166,9 +166,7 @@ namespace BFIO
         // Initialize the weights using Lagrangian interpolation on the 
         // smooth component of the kernel.
         if( rank == 0 )
-        {
             cout << "Initializing weights...";
-        }
         vector< Array<C,Power<q,d>::value> > weights(1<<log2LocalFreqBoxes);
         InitializeWeights<Psi,R,d,q>
         ( N, mySources, chebyNodes, myFreqBoxWidths, myFreqBox,
@@ -181,9 +179,7 @@ namespace BFIO
 
         // Start the main recursion loop
         if( rank == 0 )
-        {
             cout << "Starting algorithm." << endl;
-        }
         for( unsigned l=1; l<=L; ++l )
         {
             if( l == L/2 )
@@ -237,6 +233,9 @@ namespace BFIO
                         A[j] = (i>>log2LocalSpatialBoxesUpToDim) &
                                ((1u<<log2LocalSpatialBoxesPerDim[j])-1);
                         x0A[j] = mySpatialBoxOffsets[j] + A[j]*wA + wA/2;
+
+                        log2LocalSpatialBoxesUpToDim += 
+                            log2LocalSpatialBoxesPerDim[j];
                     }
 
                     // Loop over the B boxes in frequency domain
@@ -251,6 +250,9 @@ namespace BFIO
                             B[j] = (k>>log2LocalFreqBoxesUpToDim) &
                                    ((1u<<log2LocalFreqBoxesPerDim[j])-1);
                             p0B[j] = myFreqBoxOffsets[j] + B[j]*wB + wB/2;
+
+                            log2LocalFreqBoxesUpToDim += 
+                                log2LocalFreqBoxesPerDim[j];
                         }
 
                         const unsigned key = k+i*(1u<<log2LocalFreqBoxes);
@@ -277,14 +279,21 @@ namespace BFIO
                         }
                         else
                         {
-                            /*
-                            Compute the index of A relative to Ap and x0Ap
-
+                            Array<unsigned,d> globalA;
+                            Array<unsigned,d> ARelativeToAp;
+                            Array<R,d> x0Ap;
+                            for( unsigned j=0; j<d; ++j )
+                            {
+                                globalA[j] = 
+                                    mySpatialBox[j]*
+                                    (1u<<log2LocalSpatialBoxesPerDim[j]) + A[j];
+                                x0Ap[j] = (globalA[j]/2)*2*wA + wA;
+                                ARelativeToAp[j] = globalA[j] & 1;
+                            }
                             SpatialWeightRecursion<Psi,R,d,q>
                             ( N, chebyNodes, chebyGrid, 
-                              indexOfA, x0A, x0Ap, p0B, wA, wB,
-                              parentOffset, oldWeights, weights );
-                            */
+                              ARelativeToAp, x0A, x0Ap, p0B, wA, wB,
+                              parentOffset, oldWeights, weights[key] );
                         }
                     }
                 }
@@ -381,6 +390,9 @@ namespace BFIO
                         A[j] = (i>>log2LocalSpatialBoxesUpToDim) &
                                ((1<<log2LocalSpatialBoxesPerDim[j])-1);
                         x0A[j] = mySpatialBoxOffsets[j] + A[j]*wA + wA/2;
+
+                        log2LocalSpatialBoxesUpToDim += 
+                            log2LocalSpatialBoxesPerDim[j];
                     }
 
                     // Loop over the B boxes in frequency domain
@@ -395,13 +407,29 @@ namespace BFIO
                             B[j] = (k>>log2LocalFreqBoxesUpToDim) &
                                    ((1u<<log2LocalFreqBoxesPerDim[j])-1);
                             p0B[j] = myFreqBoxOffsets[j] + B[j]*wB + wB/2;
+
+                            log2LocalFreqBoxesUpToDim += 
+                                log2LocalFreqBoxesPerDim[j];
                         }
 
                         const unsigned key = k+i*(1u<<log2LocalFreqBoxes);
                         const unsigned parentOffset = 
                             (k<<(d-log2Procs))+
-                            (i>>(d-log2Procs))*(1u<<(log2LocalFreqBoxes+d));
-
+                            (i>>(d-log2Procs))*
+                            (1u<<(log2LocalFreqBoxes+(d-log2Procs)));
+#ifndef NDEBUG
+                        if( rank == 0 )
+                        {
+                            cout<<"  "<<MPI_Wtime()-startTime<<" secs."<<endl;
+                            cout<<"  (k,i) = ("<<k<<","<<i<<")"<<endl;
+                            cout<<"  log2LocalFreq ="<<log2LocalFreqBoxes<<endl;
+                            cout<<"  log2LocalSpac ="<<log2LocalSpatialBoxes<<endl;
+                            cout<<"  length        ="<<weights.size()<<endl;
+                            cout<<"  key           ="<<key<<endl;
+                            cout<<"  parentOffset  ="<<parentOffset<<endl;
+                            cout<<endl;
+                        }
+#endif
                         if( l < L/2 )
                         {
                             FreqWeightPartialRecursion<Psi,R,d,q>
@@ -411,15 +439,22 @@ namespace BFIO
                         }
                         else
                         {
-                            /*
-                            Compute index of A relative to Ap and x0Ap
-
+                            Array<unsigned,d> globalA;
+                            Array<unsigned,d> ARelativeToAp;
+                            Array<R,d> x0Ap;
+                            for( unsigned j=0; j<d; ++j )
+                            {
+                                globalA[j] = 
+                                    mySpatialBox[j]*
+                                    (1u<<log2LocalSpatialBoxesPerDim[j]) + A[j];
+                                x0Ap[j] = (globalA[j]/2)*2*wA + wA;
+                                ARelativeToAp[j] = globalA[j] & 1;
+                            }
                             SpatialWeightPartialRecursion<Psi,R,d,q>
                             ( log2Procs, myTeamRank,
                               N, chebyNodes, chebyGrid,
-                              k, x0A, x0Ap, p0B, wA, wB,
-                              parentOffset, oldWeights, weights );
-                            */
+                              ARelativeToAp, x0A, x0Ap, p0B, wA, wB,
+                              parentOffset, weights, partialWeights[key] );
                         }
                     }
                 }
